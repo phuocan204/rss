@@ -1,13 +1,9 @@
 {
   "novels": [
     {
-      "url": "https://ln.hako.vn/truyen/20399-i-couldnt-afford-to-buy-mana-so-i-started-streaming",
-      "name": "dsadasd"
-    },
-    {
-      "url": "https://ln.hako.vn/sang-tac/19360-hoc-cach-yeu",
-      "name": "Bạn gái tôi đòi sẽ chia tay với tôi"
+      "url": "https://ln.hako.vn/truyen/20291-chi-minh-chong-tuong-lai-moi-khien-co-ay-tro-nen-dang-yeu",
+      "name": "Chỉ mình chồng tương lai mới khiến cô ấy trở nên đáng yêu."
     }
   ],
-  "webhook_url": ""
+  "webhook_url": "https://discord.com/api/webhooks/1330975564986843188/yH1OpROPUUIcP0oqpkNsfplOpOfvl6bgVrSV9MJXMdLWjlJDdn_v_DTvaFWjuJejn3LN"
 }
