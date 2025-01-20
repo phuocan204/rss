@@ -1,75 +1,78 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const fs = require('fs');
-
-const config = JSON.parse(fs.readFileSync('config.json', 'utf-8'));
+const config = require('./config.json');
 const { novels, webhook_url } = config;
 
-function loadProcessedChapters(novelUrl) {
-    const fileName = `processedChapters_${Buffer.from(novelUrl).toString('base64')}.json`;
-    return fs.existsSync(fileName) ? JSON.parse(fs.readFileSync(fileName, 'utf-8')) : [];
-}
+const processedChaptersMemory = {};
 
-function luuchuong(novelUrl, chapters) {
-    const fileName = `processedChapters_${Buffer.from(novelUrl).toString('base64')}.json`;
-    fs.writeFileSync(fileName, JSON.stringify(chapters, null, 2));
-}
+const parseDate = dateString => {
+    const [day, month, year] = dateString.split('/');
+    return new Date(year, month - 1, day);
+};
 
-async function laychuong(novelUrl) {
-    try {
-        const response = await axios.get(novelUrl, {
-            headers: { 'Phuocan204': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/131.0.2903.86' }
-        });
-        const $ = cheerio.load(response.data);
-        const processedChapters = loadProcessedChapters(novelUrl);
-        let newChapters = [];
+async function fetchNovelData(novelUrl) {
+    const response = await axios.get(novelUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/131.0.2903.86' }
+    });
+    const $ = cheerio.load(response.data);
+    const author = $('span.info-name:contains("Tác giả:")').next('.info-value').find('a').text().trim(); //Lấy name tác giả
+    const seriesType = $('.series-type').text().trim(); // Lấy loại truyện
 
-        // Lấy thông tin loại truyện
-        const seriesType = $('.series-type').text().trim();
-
-        // Lấy các chương truyện
-        $('.list-chapters .chapter-name a').toArray().reverse().forEach(el => {
-            const link = $(el).attr('href');
-            if (!processedChapters.includes(link)) {
-                newChapters.push({ name: $(el).text().trim(), link: `https://ln.hako.vn${link}` });
-                processedChapters.push(link);
-            }
-        });
-
-        luuchuong(novelUrl, processedChapters);
-
-        return { newChapters, seriesType, };
-    } catch (error) {
-        return { newChapters: [], seriesType: null };
-    }
-}
-
-async function sendwebhook(newChapters, novelName, seriesType) {
-    if (newChapters.length > 0) {
-        const message = [
-            `📘 **Chương mới cập nhật:** ${newChapters[0].name}`,
-            `Tên truyện: ${novelName}`,
-            `Loại truyện: ${seriesType}`,
-            `🔗 [${novelName}](${newChapters[0].link})`
-        ].join('\n');
+    // Lấy các chương truyện
+    const chapters = $('.list-chapters li').map((_, el) => {
+        const chapterElement = $(el).find('.chapter-name a');
+        const time = $(el).find('.chapter-time').text().trim();
+        return {
+            name: chapterElement.text().trim(),
+            link: `https://ln.hako.vn${chapterElement.attr('href')}`,
+            time,
+            date: parseDate(time)
         };
-        await axios.post(webhook_url, payload, { headers: { 'Content-Type': 'application/json' } });
-    }
-
-async function kiemtra(novelUrl, novelName) {
-    const { newChapters, seriesType } = await laychuong(novelUrl);
-    if (newChapters.length > 0) await sendwebhook(newChapters, novelName, seriesType);
+    }).get().reverse();
+    return { author, seriesType, chapters };
 }
 
+async function sendWebhook(chapter, novelName, seriesType, author) {
+    try {
+        const message = [
+            `📘 **Chương mới cập nhật:**`,
+            `\`${chapter.name}\``,
+            `Tên truyện: ${novelName}`,
+            `Tác giả: ${author}`,
+            `Loại truyện: ${seriesType}`,
+            `Thời gian cập nhật: ${chapter.time}`,
+            `🔗 [${novelName}](${chapter.link})`
+        ].join('\n');
+
+        await axios.post(webhook_url, { content: message }, { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+        console.error('Lỗi gửi webhook:', error.message);
+    }
+}
+
+async function checkNovel(novelUrl, novelName, guilien) {
+    const { author, seriesType, chapters } = await fetchNovelData(novelUrl);
+    const processedChapters = processedChaptersMemory[novelUrl] || [];
+    const newChapters = chapters.filter(chap => !processedChapters.some(p => p.link === chap.link));
+
+    if (newChapters.length > 0) {
+        const latestChapter = newChapters.sort((a, b) => b.date - a.date)[0];
+        await sendWebhook(latestChapter, novelName, seriesType, author);
+        processedChaptersMemory[novelUrl] = [...processedChapters, ...newChapters];
+    } else if (guilien && processedChapters.length === 0 && chapters.length > 0) {
+        await sendWebhook(chapters[0], novelName, seriesType, author);
+        processedChaptersMemory[novelUrl] = chapters;
+    }
+}
 
 (async () => {
+    const guilien = true; //true: gửi liền
     for (let { url, name } of novels) {
-        await kiemtra(url, name);
+        await checkNovel(url, name, guilien);
     }
-    
     setInterval(async () => {
         for (let { url, name } of novels) {
-            await kiemtra(url, name);
+            await checkNovel(url, name, false);
         }
     }, 5000); // Kiểm tra cập nhật 5 giây
 })();
